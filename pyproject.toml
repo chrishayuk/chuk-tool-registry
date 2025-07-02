@@ -1,0 +1,27 @@
+[build-system]
+requires    = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chuk-tool-registry"
+version = "0.1.0"
+description = "Async-native tool registry for discovery and metadata management"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "asyncio>=3.4.3",
+    "pydantic>=2.11.7",
+]
+
+# Tell setuptools to look in src/ for your a2a package
+[tool.setuptools.packages.find]
+where   = ["src"]
+include = ["chuk_tool_registry*"]
+
+# pytest settings so it finds your src/ layout automatically
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "strict"
