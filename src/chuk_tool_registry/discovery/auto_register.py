@@ -177,7 +177,10 @@ class FunctionToolWrapper:
         else:
             # Run sync function in thread pool to avoid blocking if anyio is available
             if anyio is not None:
-                return await anyio.to_thread.run_sync(self.func, **kwargs)
+                # Create a wrapper function that takes no args and calls func with kwargs
+                def wrapper():
+                    return self.func(**kwargs)
+                return await anyio.to_thread.run_sync(wrapper)
             else:
                 # Fallback: run directly (not ideal but works for testing)
                 return self.func(**kwargs)
@@ -199,12 +202,14 @@ class LangChainToolWrapper:
     async def execute(self, **kwargs: Any) -> Any:
         """Execute the LangChain tool."""
         # Prefer async method if available
-        if hasattr(self.langchain_tool, 'arun'):
+        if hasattr(self.langchain_tool, 'arun') and callable(self.langchain_tool.arun):
             return await self.langchain_tool.arun(**kwargs)
-        elif hasattr(self.langchain_tool, 'run'):
+        elif hasattr(self.langchain_tool, 'run') and callable(self.langchain_tool.run):
             # Run sync method in thread pool if anyio is available
             if anyio is not None:
-                return await anyio.to_thread.run_sync(self.langchain_tool.run, **kwargs)
+                def wrapper():
+                    return self.langchain_tool.run(**kwargs)
+                return await anyio.to_thread.run_sync(wrapper)
             else:
                 # Fallback: run directly
                 return self.langchain_tool.run(**kwargs)
@@ -495,4 +500,4 @@ async def get_registered_function_tools(namespace: Optional[str] = None) -> Dict
             key = f"{metadata.namespace}.{metadata.name}" if namespace is None else metadata.name
             function_tools[key] = metadata
     
-    return function_tools   
+    return function_tools

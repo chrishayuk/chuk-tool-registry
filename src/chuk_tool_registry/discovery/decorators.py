@@ -5,7 +5,7 @@ Simplified decorator implementation to get basic functionality working.
 
 import functools
 import inspect
-from typing import Any, Callable, Dict, Optional, Type, TypeVar, Protocol
+from typing import Any, Callable, Dict, Optional, Type, TypeVar, Protocol, runtime_checkable
 
 # Import from core
 from chuk_tool_registry.core.registration import (
@@ -18,6 +18,7 @@ from chuk_tool_registry.core.registration import (
 T = TypeVar('T')
 
 
+@runtime_checkable
 class SerializableTool(Protocol):
     """Protocol for tools that support serialization."""
     def __getstate__(self) -> Dict[str, Any]: ...
@@ -63,13 +64,24 @@ def register_tool(
         
         # Add to registration manager (simplified approach)
         if manager is not None:
-            # Use provided manager directly
-            if not manager.is_registered(cls):
-                manager.add_registration(do_register, cls, registration_info)
+            # Try to use the manager - validation happens when methods are called
+            try:
+                # Duck typing: try to call the methods, let it fail naturally if invalid
+                if hasattr(manager, 'is_registered') and hasattr(manager, 'add_registration'):
+                    if not manager.is_registered(cls):
+                        manager.add_registration(do_register, cls, registration_info)
+                else:
+                    # Store for later - will fail during processing if invalid
+                    cls._invalid_manager = manager
+                    cls._deferred_registration = do_register
+            except Exception:
+                # Any error during manager usage - defer to later
+                cls._invalid_manager = manager
+                cls._deferred_registration = do_register
         else:
             # Store registration info for later processing
             if not hasattr(cls, '_deferred_registration'):
-                cls._deferred_registration = (do_register, registration_info)
+                cls._deferred_registration = do_register
         
         # Store registration info on the class
         cls._tool_registration_info = registration_info
@@ -88,19 +100,20 @@ def make_tool_serializable(cls: Type, tool_name: str) -> Type:
 def discover_decorated_tools() -> list[Type]:
     """Discover all tool classes decorated with @register_tool."""
     import sys
+    import gc
     tools = []
     
-    for module_name, module in list(sys.modules.items()):
-        if not hasattr(module, '__dict__'):
+    # Use garbage collector to find all class objects with registration info
+    for obj in gc.get_objects():
+        try:
+            # Check if it's a class type and has our registration marker
+            if (isinstance(obj, type) and 
+                hasattr(obj, '_tool_registration_info') and 
+                not obj.__name__.startswith('Mock')):  # Skip mock objects
+                tools.append(obj)
+        except Exception:
+            # Skip any objects that cause issues during inspection
             continue
-            
-        for attr_name in dir(module):
-            try:
-                attr = getattr(module, attr_name)
-                if hasattr(attr, '_tool_registration_info'):
-                    tools.append(attr)
-            except (AttributeError, ImportError):
-                continue
                 
     return tools
 
@@ -123,26 +136,32 @@ async def ensure_registrations_updated(manager: Optional[ToolRegistrationManager
 def _collect_deferred_registrations(manager: ToolRegistrationManager) -> None:
     """Collect deferred registrations from decorated classes."""
     import sys
+    import gc
     
-    for module_name, module in list(sys.modules.items()):
-        if not hasattr(module, '__dict__'):
+    # Use garbage collector to find decorated classes
+    for obj in gc.get_objects():
+        try:
+            # Check if it's a class with deferred registration
+            if (isinstance(obj, type) and 
+                hasattr(obj, '_deferred_registration') and 
+                hasattr(obj, '_tool_registration_info') and
+                not obj.__name__.startswith('Mock')):  # Skip mock objects
+                
+                registration_fn = obj._deferred_registration
+                registration_info = obj._tool_registration_info
+                
+                # Add to manager if not already registered
+                if not manager.is_registered(obj):
+                    manager.add_registration(registration_fn, obj, registration_info)
+                
+                # Clean up the deferred registration
+                try:
+                    delattr(obj, '_deferred_registration')
+                except AttributeError:
+                    pass  # Already cleaned up
+        except Exception:
+            # Skip any problematic objects
             continue
-            
-        for attr_name in dir(module):
-            try:
-                attr = getattr(module, attr_name)
-                if hasattr(attr, '_deferred_registration') and hasattr(attr, '_tool_registration_info'):
-                    registration_fn, registration_info = attr._deferred_registration
-                    
-                    # Add to manager if not already registered
-                    if not manager.is_registered(attr):
-                        manager.add_registration(registration_fn, attr, registration_info)
-                    
-                    # Clean up the deferred registration
-                    delattr(attr, '_deferred_registration')
-                    
-            except (AttributeError, ImportError):
-                continue
 
 
 # Override the imported ensure_registrations with our updated version

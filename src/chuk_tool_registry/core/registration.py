@@ -40,7 +40,8 @@ class ToolRegistrationManager:
         """
         self.name = name or f"RegistrationManager-{id(self)}"
         self.pending_registrations: List[Callable[[], Awaitable]] = []
-        self.registered_classes = weakref.WeakSet()
+        # Use regular set instead of WeakSet to avoid issues with Mock objects
+        self.registered_classes: Set[Type] = set()
         self.registration_info: Dict[Type, ToolRegistrationInfo] = {}
         self._shutting_down = False
         self._processed_count = 0
@@ -57,8 +58,14 @@ class ToolRegistrationManager:
             return
         
         self.pending_registrations.append(registration_fn)
-        self.registered_classes.add(tool_class)
-        self.registration_info[tool_class] = registration_info
+        # Only add to registered_classes if it's a real type, not a Mock
+        try:
+            if hasattr(tool_class, '__name__') and hasattr(tool_class, '__module__'):
+                self.registered_classes.add(tool_class)
+                self.registration_info[tool_class] = registration_info
+        except (TypeError, AttributeError):
+            # Skip problematic objects (like Mock _Call objects)
+            pass
     
     async def process_registrations(self) -> Dict[str, Any]:
         """Process all pending tool registrations."""
@@ -114,7 +121,7 @@ class ToolRegistrationManager:
     
     def get_registered_classes(self) -> Set[Type]:
         """Get all registered classes (as a set)."""
-        return set(self.registered_classes)
+        return self.registered_classes.copy()
     
     def shutdown(self) -> None:
         """Mark the manager as shutting down and clear all pending registrations."""

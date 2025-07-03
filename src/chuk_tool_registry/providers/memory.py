@@ -220,16 +220,36 @@ class InMemoryToolRegistry(ToolRegistryInterface):
         if description:
             meta_dict["description"] = description.strip()
         
-        # Add custom metadata
+        # Add custom metadata, storing complex fields in execution_options
         if metadata:
-            meta_dict.update(metadata)
+            # Extract core metadata fields that are direct ToolMetadata attributes
+            core_fields = ["version", "source", "source_name", "requires_auth", "tags", 
+                          "concurrency_limit", "timeout", "rate_limit", "supports_streaming",
+                          "argument_schema", "result_schema", "dependencies"]
+            
+            for key in core_fields:
+                if key in metadata:
+                    meta_dict[key] = metadata[key]
+            
+            # Store remaining metadata in execution_options
+            execution_options = {}
+            for key, value in metadata.items():
+                if key not in core_fields and key != "description":
+                    execution_options[key] = value
+            
+            if execution_options:
+                meta_dict["execution_options"] = execution_options
         
-        # Add tool introspection data
-        meta_dict.update({
+        # Add tool introspection data to execution_options
+        introspection_data = {
             "tool_type": type(tool).__name__,
             "tool_module": getattr(type(tool), '__module__', 'unknown'),
             "has_execute_method": has_execute,
-        })
+        }
+        
+        if "execution_options" not in meta_dict:
+            meta_dict["execution_options"] = {}
+        meta_dict["execution_options"].update(introspection_data)
         
         return ToolMetadata(**meta_dict)
 
