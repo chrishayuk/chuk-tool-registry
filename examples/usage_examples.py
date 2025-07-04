@@ -20,9 +20,113 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 
+async def example_simple_decorators():
+    """Example 1: Simple Function Decorators (Recommended Pattern)."""
+    print("🎯 Example 1: Simple Function Decorators (Recommended)")
+    print("=" * 50)
+    
+    from chuk_tool_registry import register_tool, get_registry, ensure_registrations
+    
+    print("📝 Registering simple math functions with decorators...")
+    
+    # Decorate functions directly - simple a + b examples
+    @register_tool("add", namespace="math")
+    async def add_numbers(a: int, b: int) -> int:
+        """Add two numbers together."""
+        return a + b
+
+    @register_tool("multiply", namespace="math")
+    async def multiply_numbers(a: int, b: int) -> int:
+        """Multiply two numbers together."""
+        return a * b
+
+    @register_tool("greet", namespace="utils")
+    async def greet_user(name: str) -> str:
+        """Greet a user by name."""
+        return f"Hello, {name}!"
+
+    @register_tool("subtract", namespace="math", description="Subtract second number from first")
+    async def subtract_numbers(a: int, b: int) -> int:
+        """Subtract b from a."""
+        return a - b
+    
+    # Process decorator registrations
+    print("⚙️  Processing decorator registrations...")
+    registration_result = await ensure_registrations()
+    print(f"✅ Processed {registration_result['processed']} decorator registrations")
+    
+    if registration_result['errors']:
+        print(f"❌ Registration errors: {registration_result['errors']}")
+        return
+    
+    # Use the tools
+    registry = await get_registry()
+    print("\n🧪 Testing simple decorator tools:")
+    
+    # Test math operations
+    add_tool = await registry.get_tool("add", "math")
+    if add_tool:
+        result1 = await add_tool.execute(a=5, b=3)
+        print(f"➕ 5 + 3 = {result1}")
+    else:
+        print("❌ Add tool not found")
+    
+    multiply_tool = await registry.get_tool("multiply", "math")
+    if multiply_tool:
+        result2 = await multiply_tool.execute(a=6, b=7)
+        print(f"✖️  6 × 7 = {result2}")
+    else:
+        print("❌ Multiply tool not found")
+    
+    subtract_tool = await registry.get_tool("subtract", "math")
+    if subtract_tool:
+        result3 = await subtract_tool.execute(a=10, b=4)
+        print(f"➖ 10 - 4 = {result3}")
+    else:
+        print("❌ Subtract tool not found")
+    
+    # Test greeting
+    greet_tool = await registry.get_tool("greet", "utils")
+    if greet_tool:
+        greeting = await greet_tool.execute(name="Alice")
+        print(f"👋 {greeting}")
+    else:
+        print("❌ Greet tool not found")
+    
+    # Show registered tools by namespace
+    math_tools = await registry.list_tools("math")
+    utils_tools = await registry.list_tools("utils")
+    
+    math_tool_names = [name for ns, name in math_tools if ns == "math"]
+    utils_tool_names = [name for ns, name in utils_tools if ns == "utils"]
+    
+    print(f"\n📁 Registered tools:")
+    print(f"  🧮 math: {', '.join(math_tool_names)}")
+    print(f"  🔧 utils: {', '.join(utils_tool_names)}")
+    
+    # Show metadata for one tool
+    add_metadata = await registry.get_metadata("add", "math")
+    if add_metadata:
+        print(f"\n📋 Sample metadata (add):")
+        print(f"   Name: {add_metadata.name}")
+        print(f"   Namespace: {add_metadata.namespace}")
+        print(f"   Description: {add_metadata.description}")
+        print(f"   Source: {add_metadata.source}")
+        print(f"   Async: {add_metadata.is_async}")
+    
+    print("\n💡 Simple Decorator Benefits:")
+    print("   ✅ Clean, readable syntax")
+    print("   ✅ No manual registration calls needed")
+    print("   ✅ Metadata can be specified inline")
+    print("   ✅ Works with both sync and async functions")
+    print("   ✅ Perfect for simple utility functions")
+    
+    print("✅ Simple decorators complete!\n")
+
+
 async def example_basic_usage():
-    """Example 1: Basic tool registration and usage."""
-    print("🔧 Example 1: Basic Tool Registration and Usage")
+    """Example 2: Basic tool registration and usage."""
+    print("🔧 Example 2: Basic Tool Registration and Usage")
     print("=" * 50)
     
     from chuk_tool_registry import (
@@ -108,8 +212,8 @@ async def example_basic_usage():
 
 
 async def example_advanced_tool_classes():
-    """Example 2: Advanced tool classes with rich metadata."""
-    print("🏗️ Example 2: Advanced Tool Classes")
+    """Example 3: Advanced tool classes with rich metadata."""
+    print("🏗️ Example 3: Advanced Tool Classes")
     print("=" * 50)
     
     from chuk_tool_registry import get_registry
@@ -193,8 +297,8 @@ async def example_advanced_tool_classes():
 
 
 async def example_decorator_registration():
-    """Example 2.5: Working decorator registration patterns."""
-    print("🎨 Example 2.5: Decorator Registration Patterns")
+    """Example 4: Working decorator registration patterns."""
+    print("🎨 Example 4: Decorator Registration Patterns")
     print("=" * 50)
     
     from chuk_tool_registry import (
@@ -364,50 +468,30 @@ async def example_decorator_registration():
     print(f"\n💡 Note: Decorators register classes, but tools need instances.")
     print(f"   This example shows how to bridge that gap by registering instances separately.")
     
+
 async def example_function_decorators():
-    """Example 2.75: Simple function decorators (easier than class decorators)."""
-    print("🎯 Example 2.75: Function Decorators (Recommended Pattern)")
+    """Example 5: Advanced function registration patterns."""
+    print("🎯 Example 5: Advanced Function Registration Patterns")
     print("=" * 50)
     
     from chuk_tool_registry import register_fn_tool, get_registry
     
-    print("📝 Registering functions with decorator-style patterns...")
+    print("📝 Registering functions with rich metadata...")
     
-    # While there isn't a direct function decorator, we can create a pattern that feels like one
-    # by using a helper function that mimics decorator syntax
-    
-    def tool_decorator(name: str, namespace: str = "default", **metadata):
-        """Decorator-style helper for registering functions as tools."""
-        def decorator(func):
-            # Store registration info on the function for later processing
-            func._tool_name = name
-            func._tool_namespace = namespace
-            func._tool_metadata = metadata
-            func._needs_registration = True
-            return func
-        return decorator
-    
-    # Example 1: Simple mathematical functions with decorator pattern
-    @tool_decorator("add_numbers", namespace="simple_math", description="Add two numbers")
+    # Example 1: Simple mathematical functions with rich metadata
     async def add_numbers(a: float, b: float) -> float:
         """Add two numbers together."""
         return a + b
     
-    @tool_decorator("multiply_numbers", namespace="simple_math", 
-                   description="Multiply two numbers", version="1.1.0")
     async def multiply_numbers(a: float, b: float) -> float:
         """Multiply two numbers together."""
         return a * b
     
-    @tool_decorator("power", namespace="simple_math", 
-                   description="Raise a number to a power", tags=["math", "power"])
     async def power_function(base: float, exponent: float) -> float:
         """Raise base to the power of exponent."""
         return base ** exponent
     
     # Example 2: String manipulation functions
-    @tool_decorator("clean_text", namespace="text_utils", 
-                   description="Clean and normalize text")
     async def clean_text(text: str, remove_extra_spaces: bool = True) -> str:
         """Clean and normalize text input."""
         cleaned = text.strip()
@@ -415,8 +499,6 @@ async def example_function_decorators():
             cleaned = ' '.join(cleaned.split())
         return cleaned
     
-    @tool_decorator("count_words", namespace="text_utils",
-                   description="Count words in text", version="1.0.1")
     async def count_words(text: str, min_length: int = 1) -> dict:
         """Count words in text with optional minimum length filter."""
         words = text.split()
@@ -428,8 +510,6 @@ async def example_function_decorators():
         }
     
     # Example 3: Data validation functions
-    @tool_decorator("validate_email_simple", namespace="validators",
-                   description="Simple email validation", category="validation")
     async def validate_email_simple(email: str) -> dict:
         """Validate email format with detailed response."""
         has_at = "@" in email
@@ -448,32 +528,71 @@ async def example_function_decorators():
             }
         }
     
-    # Now register all the decorated functions
-    decorated_functions = [
-        add_numbers, multiply_numbers, power_function,
-        clean_text, count_words, validate_email_simple
-    ]
-    
+    # Register functions with different metadata patterns
     registry = await get_registry()
-    registered_count = 0
     
     print("⚙️  Processing function registrations...")
-    for func in decorated_functions:
-        if hasattr(func, '_needs_registration'):
-            await register_fn_tool(
-                func,
-                name=func._tool_name,
-                namespace=func._tool_namespace,
-                **func._tool_metadata
-            )
-            registered_count += 1
-            # Clean up the registration markers
-            delattr(func, '_needs_registration')
     
-    print(f"✅ Registered {registered_count} functions using decorator pattern")
+    # Math functions with detailed metadata
+    await register_fn_tool(
+        add_numbers,
+        name="add_numbers",
+        namespace="simple_math",
+        description="Add two numbers",
+        version="1.0.0",
+        tags=["math", "basic"]
+    )
+    
+    await register_fn_tool(
+        multiply_numbers,
+        name="multiply_numbers", 
+        namespace="simple_math",
+        description="Multiply two numbers",
+        version="1.1.0",
+        author="Math Team"
+    )
+    
+    await register_fn_tool(
+        power_function,
+        name="power",
+        namespace="simple_math",
+        description="Raise a number to a power", 
+        tags=["math", "power"],
+        complexity="medium"
+    )
+    
+    # Text functions
+    await register_fn_tool(
+        clean_text,
+        name="clean_text",
+        namespace="text_utils",
+        description="Clean and normalize text",
+        category="preprocessing"
+    )
+    
+    await register_fn_tool(
+        count_words,
+        name="count_words",
+        namespace="text_utils",
+        description="Count words in text",
+        version="1.0.1",
+        output_format="structured"
+    )
+    
+    # Validation functions
+    await register_fn_tool(
+        validate_email_simple,
+        name="validate_email_simple",
+        namespace="validators",
+        description="Simple email validation",
+        category="validation",
+        reliability="basic"
+    )
+    
+    print(f"✅ Registered 6 functions with rich metadata")
     
     # Test the registered functions
-    print("\n🧪 Testing decorator-registered functions:")
+    print("\n🧪 Testing advanced function registration:")
     
     # Test math functions
     add_tool = await registry.get_tool("add_numbers", "simple_math")
@@ -525,20 +644,21 @@ async def example_function_decorators():
         print(f"   Description: {multiply_metadata.description}")
         print(f"   Version: {multiply_metadata.version}")
         print(f"   Source: {multiply_metadata.source}")
+        print(f"   Tags: {multiply_metadata.tags}")
     
-    print("\n💡 Function Decorator Pattern Benefits:")
-    print("   ✅ Cleaner syntax than class decorators")
-    print("   ✅ Works directly with async functions")
-    print("   ✅ No instance creation complexity")
-    print("   ✅ Easy to understand and maintain")
+    print("\n💡 Advanced Function Registration Benefits:")
+    print("   ✅ Rich metadata support")
+    print("   ✅ Flexible versioning and tagging")
+    print("   ✅ Custom attributes for organization")
+    print("   ✅ No decorator complexity")
     print("   ✅ Perfect for utility functions")
     
-    print("✅ Function decorators complete!\n")
+    print("✅ Advanced function registration complete!\n")
 
 
 async def example_batch_registration():
-    """Example 3: Batch registration of multiple tools."""
-    print("📦 Example 3: Batch Tool Registration")
+    """Example 6: Batch registration of multiple tools."""
+    print("📦 Example 6: Batch Tool Registration")
     print("=" * 50)
     
     from chuk_tool_registry import register_function_batch, register_module_functions
@@ -617,104 +737,14 @@ async def example_batch_registration():
         print(f"❗ 5! = {factorial_result}")
     
     print("✅ Batch registration complete!\n")
-    """Example 3: Batch registration of multiple tools."""
-    print("📦 Example 3: Batch Tool Registration")
-    print("=" * 50)
-    
-    from chuk_tool_registry import register_function_batch, register_module_functions
-    import math
-    
-    # Define multiple utility functions
-    async def fibonacci(n: int) -> int:
-        """Calculate nth Fibonacci number."""
-        if n <= 1:
-            return n
-        a, b = 0, 1
-        for _ in range(2, n + 1):
-            a, b = b, a + b
-        return b
-    
-    async def prime_check(n: int) -> bool:
-        """Check if a number is prime."""
-        if n < 2:
-            return False
-        for i in range(2, int(n ** 0.5) + 1):
-            if n % i == 0:
-                return False
-        return True
-    
-    async def factorial(n: int) -> int:
-        """Calculate factorial of a number."""
-        if n < 0:
-            raise ValueError("Factorial not defined for negative numbers")
-        return 1 if n == 0 else n * await factorial(n - 1)
-    
-    # Batch register functions
-    math_functions = {
-        "fibonacci": fibonacci,
-        "is_prime": prime_check,
-        "factorial": factorial
-    }
-    
-    results = await register_function_batch(
-        math_functions,
-        namespace="math_tools",
-        description_prefix="Math utility: ",
-        author="Math Team",
-        category="mathematics"
-    )
-    
-    print(f"📊 Batch registration results:")
-    for tool_name, success in results.items():
-        status = "✅" if success else "❌"
-        print(f"  {status} {tool_name}")
-    
-    # Test the batch-registered tools
-    registry = await get_registry()
-    
-    # Test Fibonacci
-    fib_tool = await registry.get_tool("fibonacci", "math_tools")
-    fib_result = await fib_tool.execute(n=10)
-    print(f"🔢 Fibonacci(10) = {fib_result}")
-    
-    # Test prime check
-    prime_tool = await registry.get_tool("is_prime", "math_tools")
-    prime_result = await prime_tool.execute(n=17)
-    print(f"🔍 Is 17 prime? {prime_result}")
-    
-    # Test factorial
-    factorial_tool = await registry.get_tool("factorial", "math_tools")
-    factorial_result = await factorial_tool.execute(n=5)
-    print(f"❗ 5! = {factorial_result}")
-    
-    print("✅ Batch registration complete!\n")
 
 
 async def example_namespace_management():
-    """Example 4: Working with namespaces and organization."""
-    print("🗂️ Example 4: Namespace Management")
+    """Example 7: Working with namespaces and organization."""
+    print("🗂️ Example 7: Namespace Management")
     print("=" * 50)
     
     from chuk_tool_registry import get_registry, register_fn_tool
-    
-    # Register tools in different namespaces with proper async wrappers
-    # Fix: Make lambda functions async to avoid anyio threading issues
-    namespaces_data = {
-        "data_processing": [
-            (lambda data: sorted(data), "sort_data", "Sort a list of data"),
-            (lambda data: list(set(data)), "deduplicate", "Remove duplicates from data"),
-            (lambda data: len(data), "count_items", "Count items in data")
-        ],
-        "string_utils": [
-            (lambda s: s.strip(), "trim", "Remove whitespace"),
-            (lambda s: s.title(), "title_case", "Convert to title case"),
-            (lambda s: s.replace(" ", "_"), "snake_case", "Convert to snake_case")
-        ],
-        "validation": [
-            (lambda email: "@" in email and "." in email, "validate_email", "Basic email validation"),
-            (lambda phone: phone.replace("-", "").replace(" ", "").isdigit(), "validate_phone", "Basic phone validation")
-        ]
-    }
     
     # Convert sync functions to async functions to avoid threading issues
     async def async_sort_data(data):
@@ -807,8 +837,8 @@ async def example_namespace_management():
 
 
 async def example_isolated_contexts():
-    """Example 5: Isolated registration contexts for testing."""
-    print("🧪 Example 5: Isolated Registration Contexts")
+    """Example 8: Isolated registration contexts for testing."""
+    print("🧪 Example 8: Isolated Registration Contexts")
     print("=" * 50)
     
     from chuk_tool_registry import (
@@ -865,8 +895,8 @@ async def example_isolated_contexts():
 
 
 async def example_performance_optimization():
-    """Example 6: Performance monitoring and optimization."""
-    print("⚡ Example 6: Performance Monitoring")
+    """Example 9: Performance monitoring and optimization."""
+    print("⚡ Example 9: Performance Monitoring")
     print("=" * 50)
     
     from chuk_tool_registry import get_registry, register_fn_tool, get_discovery_stats
@@ -939,8 +969,8 @@ async def example_performance_optimization():
 
 
 async def example_error_handling():
-    """Example 7: Comprehensive error handling patterns."""
-    print("🛡️ Example 7: Error Handling and Validation")
+    """Example 10: Comprehensive error handling patterns."""
+    print("🛡️ Example 10: Error Handling and Validation")
     print("=" * 50)
     
     from chuk_tool_registry import (
@@ -1014,8 +1044,8 @@ async def example_error_handling():
 
 
 async def example_real_world_workflow():
-    """Example 8: Real-world data processing workflow."""
-    print("🌟 Example 8: Real-World Data Processing Workflow")
+    """Example 11: Real-world data processing workflow."""
+    print("🌟 Example 11: Real-World Data Processing Workflow")
     print("=" * 50)
     
     from chuk_tool_registry import register_fn_tool, get_registry
@@ -1120,9 +1150,10 @@ async def main():
     """Main function to run usage examples."""
     import argparse
     
-    # Available examples
+    # Available examples - NEW ORDERING with simple decorators first
     examples = {
-        "basic": example_basic_usage,
+        "simple": example_simple_decorators,        # NEW - FIRST
+        "basic": example_basic_usage,               # Moved to second
         "advanced": example_advanced_tool_classes,
         "decorators": example_decorator_registration,
         "functions": example_function_decorators,
@@ -1151,9 +1182,22 @@ async def main():
     
     if args.list:
         print("📚 Available Examples:")
-        for name, func in examples.items():
-            doc = func.__doc__ or "No description available"
-            print(f"  {name}: {doc.split('.')[0]}")
+        descriptions = {
+            "simple": "Simple Function Decorators - Basic @register_tool usage with math functions",
+            "basic": "Basic Tool Registration - Manual registration patterns", 
+            "advanced": "Advanced Tool Classes - Complex tools with rich metadata",
+            "decorators": "Decorator Registration - Class decorator patterns",
+            "functions": "Function Registration - Advanced function registration patterns", 
+            "batch": "Batch Registration - Register multiple tools efficiently",
+            "namespaces": "Namespace Management - Organize tools logically",
+            "isolation": "Isolated Contexts - Testing and isolation patterns",
+            "performance": "Performance Monitoring - Track and optimize tool performance",
+            "errors": "Error Handling - Comprehensive error scenarios", 
+            "workflow": "Real-World Workflow - Complete data processing pipeline"
+        }
+        for name in examples.keys():
+            desc = descriptions.get(name, "No description available")
+            print(f"  {name}: {desc}")
         return
     
     print("🚀 Chuk Tool Registry - Usage Examples")
