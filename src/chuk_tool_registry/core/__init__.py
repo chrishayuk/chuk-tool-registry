@@ -7,7 +7,8 @@ This module provides the foundational components for the chuk_tool_registry:
 - Registry interface definitions
 - Exception classes
 - Global registry provider access
-- Registration management (NEW)
+- Registration management
+- Validation support
 
 Example usage:
     >>> import asyncio
@@ -33,7 +34,28 @@ Registration Management:
     >>> # Create isolated registration context
     >>> manager = create_registration_manager("test_context")
     >>> # Use manager for isolated tool registrations
+
+Validation Support:
+    >>> from chuk_tool_registry.core import ValidationConfig, with_validation
+    >>> 
+    >>> @with_validation
+    >>> class MyTool:
+    ...     async def execute(self, x: int, y: int) -> int:
+    ...         return x + y
 """
+
+# Version information - import from package metadata
+try:
+    from importlib.metadata import version
+    __version__ = version("chuk-tool-registry")
+except ImportError:
+    # Fallback for Python < 3.8
+    try:
+        from importlib_metadata import version
+        __version__ = version("chuk-tool-registry")
+    except ImportError:
+        # Final fallback for development
+        __version__ = "0.0.0-dev"
 
 # Core interface and protocol definitions
 from .interface import ToolRegistryInterface
@@ -68,7 +90,7 @@ from .provider import (
     ensure_registry_interface,
 )
 
-# Registration management (NEW - moved from decorators)
+# Registration management
 from .registration import (
     ToolRegistrationManager,
     ToolRegistrationInfo,
@@ -81,8 +103,15 @@ from .registration import (
     validate_registration_manager,
 )
 
-# Version information
-__version__ = "2.0.0"
+# Validation support
+from .validation import (
+    validate_arguments,
+    validate_result,
+    with_validation,
+    ValidationConfig,
+    create_validation_wrapper,
+    validate_tool_execution,
+)
 
 # Public API - organized by functionality
 __all__ = [
@@ -124,6 +153,14 @@ __all__ = [
     "get_registration_statistics",
     "validate_registration_manager",
     
+    # === VALIDATION SUPPORT ===
+    "validate_arguments",
+    "validate_result",
+    "with_validation",
+    "ValidationConfig",
+    "create_validation_wrapper",
+    "validate_tool_execution",
+    
     # === VERSION ===
     "__version__",
 ]
@@ -137,6 +174,7 @@ CORE_COMPONENTS = {
                    "ToolTimeoutError", "ToolValidationError", "ParserError"],
     "provider": ["get_registry", "set_registry", "ToolRegistryProvider"],
     "registration": ["ToolRegistrationManager", "create_registration_manager", "ensure_registrations"],
+    "validation": ["ValidationConfig", "with_validation", "validate_arguments", "validate_result"],
 }
 
 
@@ -151,7 +189,8 @@ def get_core_info() -> dict:
         "version": __version__,
         "components": CORE_COMPONENTS,
         "total_exports": len(__all__),
-        "description": "Core components for async-native tool registry",
+        "description": "Core components for async-native tool registry with validation support",
+        "validation_available": True,
     }
 
 
@@ -169,11 +208,13 @@ def validate_core_setup() -> bool:
         from .provider import get_registry
         from .registration import ToolRegistrationManager
         from .exceptions import ToolNotFoundError
+        from .validation import ValidationConfig
         
         # Basic validation that classes are properly defined
         assert issubclass(ToolNotFoundError, Exception)
         assert hasattr(ToolMetadata, 'name')
         assert hasattr(ToolRegistrationManager, 'add_registration')
+        assert callable(True)
         
         return True
     except (ImportError, AssertionError, AttributeError):
@@ -218,8 +259,37 @@ async def create_isolated_context() -> tuple[ToolRegistryInterface, ToolRegistra
     return registry, manager
 
 
+async def create_validated_context(
+    validation_config: ValidationConfig = None
+) -> tuple[ToolRegistryInterface, ToolRegistrationManager]:
+    """
+    Create an isolated registry with validation enabled.
+    
+    Args:
+        validation_config: Optional validation configuration
+        
+    Returns:
+        Tuple of (validated_registry, registration_manager)
+        
+    Example:
+        >>> config = ValidationConfig(strict_mode=True)
+        >>> registry, manager = await create_validated_context(config)
+        >>> # Use for validated testing
+    """
+    from ..providers.memory import InMemoryToolRegistry
+    
+    config = validation_config or ValidationConfig()
+    registry = InMemoryToolRegistry(
+        enable_validation=True,
+        validation_config=config
+    )
+    manager = create_registration_manager("validated_context")
+    
+    return registry, manager
+
+
 # Add convenience functions to exports
-__all__.extend(["quick_setup", "create_isolated_context"])
+__all__.extend(["quick_setup", "create_isolated_context", "create_validated_context"])
 
 
 # Module-level validation on import (only in debug mode)

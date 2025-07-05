@@ -1,6 +1,8 @@
 # src/chuk_tool_registry/discovery/decorators.py
 """
-Decorators
+Enhanced decorators with integrated validation support.
+
+Clean implementation assuming Pydantic and anyio are always available.
 """
 
 import functools
@@ -15,6 +17,7 @@ from chuk_tool_registry.core.registration import (
     get_global_registration_manager,
     create_registration_manager
 )
+from chuk_tool_registry.core.validation import ValidationConfig
 
 T = TypeVar('T')
 
@@ -30,10 +33,33 @@ def register_tool(
     name: Optional[str] = None, 
     namespace: str = "default", 
     manager: Optional[ToolRegistrationManager] = None,
+    validation_config: Optional[ValidationConfig] = None,
+    enable_validation: Optional[bool] = None,
     **metadata
 ) -> Callable[[Union[Type[T], Callable]], Union[Type[T], Callable]]:
     """
-    Enhanced decorator for registering both functions and classes as tools.
+    Enhanced decorator for registering both functions and classes as tools with validation support.
+    
+    Args:
+        name: Optional tool name (defaults to function/class name)
+        namespace: Namespace for the tool
+        manager: Optional registration manager for isolated contexts
+        validation_config: Optional validation configuration
+        enable_validation: Whether to enable validation for this tool
+        **metadata: Additional metadata for the tool
+    
+    Returns:
+        Decorator function that registers the tool
+    
+    Examples:
+        @register_tool("my_calculator", enable_validation=True)
+        async def calculate(a: int, b: int) -> int:
+            return a + b
+        
+        @register_tool("advanced_calc", validation_config=ValidationConfig(strict_mode=True))
+        class AdvancedCalculator:
+            async def execute(self, operation: str, a: float, b: float) -> float:
+                # ... implementation
     """
     
     def decorator(target: Union[Type[T], Callable]) -> Union[Type[T], Callable]:
@@ -47,12 +73,19 @@ def register_tool(
         # Determine tool name
         tool_name = name or target.__name__
         
+        # Merge validation settings into metadata
+        enhanced_metadata = dict(metadata)
+        if enable_validation is not None:
+            enhanced_metadata['enable_validation'] = enable_validation
+        if validation_config is not None:
+            enhanced_metadata['validation_config'] = validation_config
+        
         if is_function:
             # Handle function registration
-            return _register_function_tool(target, tool_name, namespace, manager, metadata)
+            return _register_function_tool(target, tool_name, namespace, manager, enhanced_metadata)
         else:
-            # Handle class registration (existing logic)
-            return _register_class_tool(target, tool_name, namespace, manager, metadata)
+            # Handle class registration
+            return _register_class_tool(target, tool_name, namespace, manager, enhanced_metadata)
     
     return decorator
 
@@ -64,34 +97,25 @@ def _register_function_tool(
     manager: Optional[ToolRegistrationManager],
     metadata: Dict[str, Any]
 ) -> Callable:
-    """Register a function as a tool."""
+    """Register a function as a tool with validation support."""
+    
+    # Extract validation settings from metadata
+    enable_validation = metadata.get('enable_validation', False)
+    validation_config = metadata.get('validation_config')
     
     # Create registration function
     async def do_register():
         from chuk_tool_registry.core.provider import ToolRegistryProvider
-        from chuk_tool_registry.discovery.auto_register import FunctionToolWrapper
+        from chuk_tool_registry.discovery.auto_register import register_fn_tool
         
-        # Create function wrapper
-        description = metadata.get("description", func.__doc__ or f"Function tool: {tool_name}")
-        wrapper = FunctionToolWrapper(func, tool_name, description)
-        
-        # Build complete metadata
-        tool_metadata = {
-            "description": description,
-            "is_async": True,  # Wrapper is always async
-            "source": "function_decorator",
-            "source_name": func.__qualname__,
-            "original_function": func.__name__,
-            **metadata
-        }
-        
-        # Register with the registry
-        registry = await ToolRegistryProvider.get_registry()
-        await registry.register_tool(
-            wrapper,
+        # Use the enhanced register_fn_tool with validation support
+        await register_fn_tool(
+            func,
             name=tool_name,
             namespace=namespace,
-            metadata=tool_metadata
+            validation_config=validation_config,
+            enable_validation=enable_validation,
+            **{k: v for k, v in metadata.items() if k not in ['enable_validation', 'validation_config']}
         )
     
     # Store registration info on the function
@@ -100,6 +124,8 @@ def _register_function_tool(
     func._tool_metadata = metadata
     func._is_function_tool = True
     func._deferred_registration = do_register
+    func._validation_enabled = enable_validation
+    func._validation_config = validation_config
     
     # Try immediate registration if event loop is available
     try:
@@ -108,9 +134,6 @@ def _register_function_tool(
             # Create task for immediate registration
             task = loop.create_task(do_register())
             func._registration_task = task
-        else:
-            # No running loop, will be processed by ensure_registrations
-            pass
     except RuntimeError:
         # No event loop available, will be processed by ensure_registrations
         pass
@@ -125,11 +148,15 @@ def _register_class_tool(
     manager: Optional[ToolRegistrationManager],
     metadata: Dict[str, Any]
 ) -> Type[T]:
-    """Register a class tool using the existing deferred registration pattern."""
+    """Register a class tool using the enhanced deferred registration pattern with validation."""
     
     # Validate execute method
     if hasattr(cls, 'execute') and not inspect.iscoroutinefunction(cls.execute):
         raise TypeError(f"Tool {cls.__name__} must have an async execute method")
+    
+    # Extract validation settings
+    enable_validation = metadata.get('enable_validation', False)
+    validation_config = metadata.get('validation_config')
     
     # Create registration info
     registration_info = ToolRegistrationInfo(
@@ -139,16 +166,30 @@ def _register_class_tool(
         tool_class=cls
     )
     
-    # Create registration function
+    # Create enhanced registration function
     async def do_register():
         from chuk_tool_registry.core.provider import ToolRegistryProvider
         registry = await ToolRegistryProvider.get_registry()
-        await registry.register_tool(
-            cls, 
-            name=tool_name, 
-            namespace=namespace, 
-            metadata=metadata
-        )
+        
+        # Use enhanced registration method if available
+        if (hasattr(registry, 'register_tool') and 
+            'validation_config' in inspect.signature(registry.register_tool).parameters):
+            await registry.register_tool(
+                cls, 
+                name=tool_name, 
+                namespace=namespace, 
+                metadata={k: v for k, v in metadata.items() if k not in ['enable_validation', 'validation_config']},
+                validation_config=validation_config,
+                enable_validation=enable_validation
+            )
+        else:
+            # Fallback to standard registration
+            await registry.register_tool(
+                cls, 
+                name=tool_name, 
+                namespace=namespace, 
+                metadata=metadata
+            )
     
     # Add to registration manager if provided
     if manager is not None:
@@ -169,12 +210,87 @@ def _register_class_tool(
     
     # Store registration info on the class
     cls._tool_registration_info = registration_info
+    cls._validation_enabled = enable_validation
+    cls._validation_config = validation_config
     
     return cls
 
 
+def validated_tool(
+    name: Optional[str] = None,
+    namespace: str = "default",
+    validation_config: Optional[ValidationConfig] = None,
+    strict_mode: bool = False,
+    **metadata
+) -> Callable[[Union[Type[T], Callable]], Union[Type[T], Callable]]:
+    """
+    Convenience decorator for registering tools with validation enabled by default.
+    
+    This is a specialized version of @register_tool that enables validation
+    and provides convenient validation configuration options.
+    
+    Args:
+        name: Optional tool name
+        namespace: Namespace for the tool
+        validation_config: Optional custom validation configuration
+        strict_mode: Whether to enable strict validation mode
+        **metadata: Additional metadata
+    
+    Returns:
+        Decorator function
+    
+    Examples:
+        @validated_tool("strict_calculator", strict_mode=True)
+        async def calculate(a: int, b: int) -> int:
+            return a + b
+        
+        @validated_tool("lenient_processor")
+        class DataProcessor:
+            async def execute(self, data: list) -> dict:
+                # ... implementation
+    """
+    # Create validation configuration if not provided
+    if validation_config is None:
+        validation_config = ValidationConfig(
+            strict_mode=strict_mode,
+            validate_arguments=True,
+            validate_results=True
+        )
+    
+    return register_tool(
+        name=name,
+        namespace=namespace,
+        validation_config=validation_config,
+        enable_validation=True,
+        **metadata
+    )
+
+
+def requires_pydantic(func_or_cls: Union[Callable, Type]) -> Union[Callable, Type]:
+    """
+    Decorator that ensures Pydantic is available for validation-dependent tools.
+    
+    Since Pydantic is now a required dependency, this decorator is mainly
+    for documentation purposes and consistency.
+    
+    Args:
+        func_or_cls: Function or class to decorate
+    
+    Returns:
+        Decorated function or class (unchanged)
+    
+    Example:
+        @requires_pydantic
+        @validated_tool("my_tool")
+        async def my_function(data: ComplexType) -> Result:
+            # ... implementation
+    """
+    # Pydantic is always available now, so this is a no-op
+    return func_or_cls
+
+
 async def ensure_registrations_updated(manager: Optional[ToolRegistrationManager] = None) -> Dict[str, Any]:
-    """Process all pending tool registrations including both classes and functions."""
+    """Enhanced ensure_registrations with better validation support and reporting."""
     if manager is None:
         # Handle both global manager and function registrations
         global_manager = await get_global_registration_manager()
@@ -191,8 +307,11 @@ async def ensure_registrations_updated(manager: Optional[ToolRegistrationManager
         # Process class registrations through the manager
         manager_results = await global_manager.process_registrations()
         
-        # Combine results
+        # Combine results with validation information
         total_function_processed = function_task_results["processed"] + function_deferred_results["processed"]
+        
+        # Gather validation statistics
+        validation_stats = await _gather_validation_statistics()
         
         return {
             "processed": manager_results["processed"] + total_function_processed,
@@ -200,18 +319,20 @@ async def ensure_registrations_updated(manager: Optional[ToolRegistrationManager
             "pending": manager_results["pending"],
             "errors": manager_results["errors"] + function_task_results["errors"] + function_deferred_results["errors"],
             "manager": manager_results["manager"],
-            "function_registrations": total_function_processed
+            "function_registrations": total_function_processed,
+            "validation_statistics": validation_stats
         }
     else:
         return await manager.process_registrations()
 
 
 async def _await_pending_function_tasks() -> Dict[str, Any]:
-    """Await any pending function registration tasks."""
+    """Await any pending function registration tasks with validation info."""
     import gc
     
     processed = 0
     errors = []
+    validation_enabled = 0
     
     # Find functions with pending registration tasks
     for obj in gc.get_objects():
@@ -226,6 +347,8 @@ async def _await_pending_function_tasks() -> Dict[str, Any]:
                     try:
                         await task
                         processed += 1
+                        if getattr(obj, '_validation_enabled', False):
+                            validation_enabled += 1
                         # Clean up the task
                         delattr(obj, '_registration_task')
                     except Exception as e:
@@ -233,6 +356,8 @@ async def _await_pending_function_tasks() -> Dict[str, Any]:
                 elif task.done() and not task.cancelled():
                     # Task completed successfully
                     processed += 1
+                    if getattr(obj, '_validation_enabled', False):
+                        validation_enabled += 1
                     delattr(obj, '_registration_task')
                 elif task.cancelled():
                     errors.append(f"Function {obj.__name__} task was cancelled")
@@ -243,16 +368,18 @@ async def _await_pending_function_tasks() -> Dict[str, Any]:
     
     return {
         "processed": processed,
-        "errors": errors
+        "errors": errors,
+        "validation_enabled": validation_enabled
     }
 
 
 async def _process_deferred_function_registrations() -> Dict[str, Any]:
-    """Process any function registrations that were deferred."""
+    """Process any function registrations that were deferred with validation info."""
     import gc
     
     processed = 0
     errors = []
+    validation_enabled = 0
     
     # Find functions with deferred registrations (no task created)
     for obj in gc.get_objects():
@@ -267,6 +394,8 @@ async def _process_deferred_function_registrations() -> Dict[str, Any]:
                 try:
                     await registration_fn()
                     processed += 1
+                    if getattr(obj, '_validation_enabled', False):
+                        validation_enabled += 1
                     # Clean up the deferred registration
                     delattr(obj, '_deferred_registration')
                 except Exception as e:
@@ -277,7 +406,8 @@ async def _process_deferred_function_registrations() -> Dict[str, Any]:
     
     return {
         "processed": processed,
-        "errors": errors
+        "errors": errors,
+        "validation_enabled": validation_enabled
     }
 
 
@@ -309,6 +439,21 @@ def _collect_deferred_registrations(manager: ToolRegistrationManager) -> None:
         except Exception:
             # Skip any problematic objects
             continue
+
+
+async def _gather_validation_statistics() -> Dict[str, Any]:
+    """Gather statistics about validation usage in registered tools."""
+    try:
+        from chuk_tool_registry.discovery.auto_register import get_validation_statistics
+        return await get_validation_statistics()
+    except ImportError:
+        # Fallback if auto_register is not available
+        return {
+            "validation_available": True,  # Always true now
+            "total_tools": 0,
+            "validation_enabled_tools": 0,
+            "validation_percentage": 0.0
+        }
 
 
 def make_tool_serializable(cls: Type, tool_name: str) -> Type:
@@ -350,16 +495,57 @@ def discover_decorated_functions() -> list[Callable]:
     return functions
 
 
-# Override the imported ensure_registrations with our updated version
+def discover_validation_enabled_tools() -> Dict[str, list]:
+    """
+    Discover all tools (functions and classes) that have validation enabled.
+    
+    Returns:
+        Dict with 'functions' and 'classes' keys containing lists of validation-enabled tools
+    """
+    import gc
+    
+    result = {
+        "functions": [],
+        "classes": []
+    }
+    
+    for obj in gc.get_objects():
+        try:
+            if inspect.isfunction(obj) and hasattr(obj, '_is_function_tool'):
+                if getattr(obj, '_validation_enabled', False):
+                    result["functions"].append({
+                        "function": obj,
+                        "name": getattr(obj, '_tool_name', obj.__name__),
+                        "namespace": getattr(obj, '_tool_namespace', 'default'),
+                        "validation_config": getattr(obj, '_validation_config', None)
+                    })
+            elif inspect.isclass(obj) and hasattr(obj, '_tool_registration_info'):
+                if getattr(obj, '_validation_enabled', False):
+                    result["classes"].append({
+                        "class": obj,
+                        "name": getattr(obj, '_tool_registration_info').name,
+                        "namespace": getattr(obj, '_tool_registration_info').namespace,
+                        "validation_config": getattr(obj, '_validation_config', None)
+                    })
+        except Exception:
+            continue
+    
+    return result
+
+
+# Override the imported ensure_registrations with our enhanced version
 ensure_registrations = ensure_registrations_updated
 
 
 # Re-export key functions
 __all__ = [
     "register_tool",
+    "validated_tool",
+    "requires_pydantic",
     "make_tool_serializable", 
     "discover_decorated_tools",
     "discover_decorated_functions",
+    "discover_validation_enabled_tools",
     "SerializableTool",
     "ensure_registrations",
     "create_registration_manager",
